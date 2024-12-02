@@ -3,6 +3,26 @@ import {ApiError} from "../utils/ApiError.js"
 import {User} from "../models/user.model.js"
 import {uploadOnCloudinary} from "../utils/cloudinary.js"
 import { ApiResponse } from "../utils/ApiResponse.js";
+import jwt from "jsonwebtoken";
+import { json } from "express";
+
+
+const generateAccessAndRefreshTokens = async(userId) => {
+   try {
+      const user = await User.findById(userId)
+      const accessToken = user.generateAccessToken()
+      const refreshToken = user.generateRefreshToken()
+
+      user.refreshToken = refreshToken
+      await user.save({validateBeforeSave: false}) //here because user is coming through mongoose, it gets a save method,But when we use save what happens is it kicks in some fields , so it kicks in the password field as well as in it is trying to validate the user, but here we aren't giving password but one parameter only, hence we would be needing to false the validateBeforeSave. 
+
+      return {accessToken, refreshToken}
+      
+   } catch (error) {
+      throw new ApiError(500, "Something went wrong while generating tokens.")
+   }
+}
+
 
 const registerUser = asyncHandler( async (req, res) => {
      //get user details from frontend(we can also do that with postman)
@@ -11,13 +31,14 @@ const registerUser = asyncHandler( async (req, res) => {
      //check for images,check for avatar
      //upload images to cloudinary, avatar double check
      //create user object- create entry in db
-     //remove password, refreah token field from response
+     //remove password, refresh token field from response
      //check for user creation
      //return response
 
 
      const {fullname, username, email, password} = req.body
      console.log(`username: ${username}, email: ${email}`);
+     console.log(req.body);
 
      if (
         [fullname, email, username, password].some((field) => (
@@ -82,4 +103,139 @@ const registerUser = asyncHandler( async (req, res) => {
 
 } )
 
-export {registerUser}
+const loginUser = asyncHandler( async(req, res) => {
+    // req body -> data
+    // username or email
+    // find the user
+    // validate password
+    // access & refresh token
+    // send cookies
+    // send response that user has logged in
+
+    const {email, username, password} = req.body
+    console.log("email:",email);
+
+    if(!username && !email){
+      throw new ApiError(400, "username or email is required")
+    }
+
+    const user = await User.findOne({
+      $or: [{username}, {email}] //here findOne will find property which is given in parameter and then come out of loop.
+      // In normal cases it would have been written as User.findOne({username}) , if we had only one requirement , but here we want two, hence we can use $or operator where you can define an array which take object inside. 
+      // here whichever property would be found first will be taken and loop ends.As we want only one - either username or email.
+    })
+
+    if (!user){
+      throw new ApiError(404, "User doesn't exist!!")
+    }
+
+    const isPasswordValid = await user.isPasswordCorrect(password)
+
+    if(!isPasswordValid){
+      throw new ApiError(401, "You entered the wrong password!!, try again")
+    }
+
+    const {accessToken, refreshToken} = await generateAccessAndRefreshTokens(user._id)
+
+    const loggedInUser = await User.findById(user._id)
+    .select("-password -refreshToken")
+
+    const options = {
+      httpOnly: true,
+      secure: true
+    }//after doing httpOnly true and secure true, then cookies can only be modified through server side and not from the frontend side.It can be observed through frontend side but can only be modified through server side.
+
+    return res
+    .status(200)
+    .cookie("accessToken", accessToken, options)
+    .cookie("refreshToken", refreshToken, options)
+    .json(
+      new ApiResponse(200,
+           { 
+            user: loggedInUser, accessToken,
+            refreshToken
+           },
+           "User logged In Successfully"
+      )
+    )
+
+})
+
+const logoutUser = asyncHandler (async (req, res) =>{
+     await User.findByIdAndUpdate(
+      req.user._id,
+      {
+         $set: {
+            refreshToken: undefined
+         }
+      },
+      {
+         new: true
+      }
+     )
+
+     const options = {
+      httpOnly: true,
+      secure: true
+    }
+
+    return res
+    .status(200)
+    .clearCookie("accessToken", options)
+    .clearCookie("refreshToken", options)
+    .json(new ApiResponse(200, {}, "User logged Out"))
+
+})
+
+const refreshAccessToken = asyncHandler(async (res, req) => {
+   const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken
+
+   if(!incomingRefreshToken){
+      throw new ApiError(401, "unauthorized request")
+   }
+
+   try {
+      const decodedToken = jwt.verify(
+         incomingRefreshToken,
+         process.env.REFRESH_TOKEN_SECRET
+      )
+   
+      const user = await User.findById(decodedToken?._id)
+      
+      if(!user){
+         throw new ApiError(401, "Invalid refresh token")
+      }
+   
+      if(incomingRefreshToken !== user?.refreshToken){
+         throw new ApiError(401, Refresh token is expired or used")
+      }
+   
+      const options = {
+         httpOnly: true,
+         secure: true
+      }
+   
+      const {accessToken, newRefreshToken} = await generateAccessAndRefreshTokens(user._id)
+   
+      return res
+      .status(200)
+      .cookie("accessToken", accessToken, options)
+      .cookie("refreshToken", newRefreshToken, options)
+      .json(
+         new ApiResponse(
+            200,
+            {accessToken, refreshToken: newRefreshToken},
+            "Access Token refreshed successfully"
+         )
+      )
+   } catch (error) {
+      throw new ApiError(401, error?.message || "Invalid Refresh Token")
+   }
+})
+
+export {
+   registerUser,
+   loginUser,
+   logoutUser,
+   refreshAccessToken
+}
