@@ -1,4 +1,5 @@
 import {asyncHandler} from "../utils/asyncHandler.js";
+import mongoose from "mongoose";
 import {ApiError} from "../utils/ApiError.js"
 import {User} from "../models/user.model.js"
 import {uploadOnCloudinary} from "../utils/cloudinary.js"
@@ -233,7 +234,7 @@ const refreshAccessToken = asyncHandler(async (res, req) => {
    }
 })
 
-const changeCurrentPassword = asyncHandler(async(re,res)  => {
+const changeCurrentPassword = asyncHandler(async(req,res)  => {
    const {oldPassword, newPassword} = req.body
 
    const user = await User.findById(req.user?._id)
@@ -259,7 +260,7 @@ const getCurrentUser = asyncHandler(async(req,res) => {
 const updateAccountDetails = asyncHandler(async(req,res) => {
    const {fullname, email} = req.body
 
-   if(!fullname || email){
+   if(!fullname || !email){
       throw new ApiError(400, "All fields are required")
    }
 
