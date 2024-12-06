@@ -372,6 +372,14 @@ const getUserChannelProfile = asyncHandler(async(req,res) => {
          }
       },
       {
+         $lookup: {
+            from: "tweets",
+            localField: "_id",
+            foreignField: "owner",
+            as: "userTweets"
+         }
+      },
+      {
          $addFields: {
             subscribersCount: {
                $size: "$subscribers"
@@ -385,6 +393,9 @@ const getUserChannelProfile = asyncHandler(async(req,res) => {
                   then: true,
                   else: false
                }
+            },
+            tweetCount: {
+               $size: "$userTweets"
             }
          }
       },
@@ -395,6 +406,7 @@ const getUserChannelProfile = asyncHandler(async(req,res) => {
             subscribersCount: 1,
             channelsSubscribedToCount: 1,
             isSubscribed: 1,
+            tweetCount: 1,
             avatar: 1,
             coverImage: 1,
             email: 1
