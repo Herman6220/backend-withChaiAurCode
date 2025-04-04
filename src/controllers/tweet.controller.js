@@ -77,7 +77,7 @@ const getUserTweets = asyncHandler(async (req, res) => {
         ])
         console.log(tweet[0]);
     
-        if(!tweet){
+        if(!tweet?.length){
             throw new ApiError(400, "You have never tweeted, Please tweet")
         }
     
